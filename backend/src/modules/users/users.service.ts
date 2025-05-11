@@ -6,6 +6,8 @@ import { CreateUserDto } from './dto/user.dto';
 
 @Injectable()
 export class UsersService {
+  private users: Map<string, User> = new Map();
+
   constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {
     console.log('✅ UsersService constructor llamado');
   }
@@ -15,23 +17,23 @@ export class UsersService {
     return user.save();
   }
 
-  async remove(id: string): Promise<User> {
-    const user = await this.userModel.findByIdAndDelete(id).exec();
-    if (!user) {
-      throw new Error(`User with id ${id} not found`);
+  remove(socketId: string): User | undefined {
+    const user = this.users.get(socketId);
+    if (user) {
+      this.users.delete(socketId);
     }
     return user;
   }
 
-  async findAll(): Promise<User[]> {
-    return this.userModel.find().exec();
+  addUser(socketId: string, user: User): void {
+    this.users.set(socketId, user);
   }
 
-  async findOne(id: string): Promise<User> {
-    const user = await this.userModel.findById(id).exec();
-    if (!user) {
-      throw new Error(`User with id ${id} not found`);
-    }
-    return user;
+  findAll(): User[] {
+    return Array.from(this.users.values());
+  }
+
+  findOne(id: string): User | undefined {
+    return this.users.get(id);
   }
 }

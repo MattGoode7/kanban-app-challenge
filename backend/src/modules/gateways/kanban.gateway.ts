@@ -13,8 +13,11 @@ import {
   
   @WebSocketGateway({
     cors: {
-      origin: '*',
+      origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'],
+      methods: ['GET', 'POST'],
+      credentials: true,
     },
+    transports: ['websocket', 'polling'],
   })
   export class KanbanGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @WebSocketServer()
@@ -23,7 +26,6 @@ import {
     constructor(private usersService: UsersService) {
       console.log('✅ UsersService injected');
       console.log('usersService class:', this.usersService.constructor.name);
-
     }
   
     async handleConnection(client: Socket) {

@@ -9,7 +9,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LoginPage />} />
-          <Route path="/board" element={<BoardPage />} />
+          <Route path="/board/:boardId" element={<BoardPage />} />
         </Routes>
       </BrowserRouter>
     </SocketProvider>

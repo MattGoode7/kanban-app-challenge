@@ -1,9 +1,12 @@
-import { SocketContext } from './context/SocketContext';
-import { io } from 'socket.io-client';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { SocketProvider } from './context/SocketContext';
 import App from './App'; 
 
-const socket = io('http://localhost:3000'); 
-
-<SocketContext.Provider value={socket}>
-  <App />
-</SocketContext.Provider>
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <SocketProvider>
+      <App />
+    </SocketProvider>
+  </React.StrictMode>,
+);
