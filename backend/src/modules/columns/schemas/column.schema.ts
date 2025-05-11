@@ -8,7 +8,7 @@ export type ColumnDocument = Column & Document;
 @Schema()
 export class Column {
   @Prop({ required: true })
-  title: string;
+  name: string;
 
   @Prop({ type: Types.ObjectId, ref: 'Board', required: true })
   boardId: Board;

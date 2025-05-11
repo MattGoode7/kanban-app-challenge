@@ -14,11 +14,27 @@ export class BoardsService {
   }
 
   async findAll(): Promise<Board[]> {
-    return this.boardModel.find().exec();
+    return this.boardModel
+      .find()
+      .populate({
+        path: 'columns',
+        populate: {
+          path: 'cards'
+        }
+      })
+      .exec();
   }
 
   async findOne(id: string): Promise<Board> {
-    const board = await this.boardModel.findById(id);
+    const board = await this.boardModel
+      .findById(id)
+      .populate({
+        path: 'columns',
+        populate: {
+          path: 'cards'
+        }
+      });
+    
     if (!board) {
       throw new NotFoundException('Board not found');
     }
@@ -26,7 +42,15 @@ export class BoardsService {
   }
 
   async update(id: string, updateBoardDto: UpdateBoardDto): Promise<Board> {
-    const updated = await this.boardModel.findByIdAndUpdate(id, updateBoardDto, { new: true });
+    const updated = await this.boardModel
+      .findByIdAndUpdate(id, updateBoardDto, { new: true })
+      .populate({
+        path: 'columns',
+        populate: {
+          path: 'cards'
+        }
+      });
+    
     if (!updated) {
       throw new NotFoundException('Board not found');
     }
@@ -34,7 +58,15 @@ export class BoardsService {
   }
 
   async remove(id: string): Promise<Board> {
-    const deleted = await this.boardModel.findByIdAndDelete(id);
+    const deleted = await this.boardModel
+      .findByIdAndDelete(id)
+      .populate({
+        path: 'columns',
+        populate: {
+          path: 'cards'
+        }
+      });
+    
     if (!deleted) {
       throw new NotFoundException('Board not found');
     }

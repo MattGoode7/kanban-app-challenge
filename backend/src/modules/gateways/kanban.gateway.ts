@@ -18,10 +18,13 @@ import {
   import { Types } from 'mongoose';
   import { Card } from '../cards/schemas/card.schema';
   import { Column } from '../columns/schemas/column.schema';
+  import { Board } from '../boards/schemas/board.schema';
+  import { UpdateCardDto } from '../cards/dto/card.dto';
+  import { Inject, forwardRef } from '@nestjs/common';
   
   @WebSocketGateway({
     cors: {
-      origin: 'http://localhost:5174',
+      origin: ['http://localhost:5173', 'http://localhost:5174'],
       methods: ['GET', 'POST'],
       credentials: true,
     },
@@ -31,10 +34,13 @@ import {
     @WebSocketServer()
     server: Server;
   
+    private userRooms: Map<string, string[]> = new Map();
+  
     constructor(
       private readonly usersService: UsersService,
       private readonly boardsService: BoardsService,
       private readonly columnsService: ColumnsService,
+      @Inject(forwardRef(() => CardsService))
       private readonly cardsService: CardsService,
     ) {
       console.log('✅ KanbanGateway constructor llamado');
@@ -48,38 +54,47 @@ import {
       console.log(`Cliente desconectado: ${client.id}`);
       const user = await this.usersService.remove(client.id);
       if (user) {
-        this.server.emit('userDisconnected', { name: user.name });
+        this.server.emit('userLeft', { name: user.name });
       }
     }
   
-    @SubscribeMessage('join')
-    async handleJoin(client: Socket, data: { username: string }) {
+    @SubscribeMessage('join_board')
+    async handleJoinBoard(client: Socket, boardId: string) {
       try {
-        let user = await this.usersService.findByName(data.username);
-  
-        if (!user) {
-          // Generar una contraseña aleatoria para usuarios creados vía socket
-          const randomPassword = Math.random().toString(36).slice(-8);
-          const hashedPassword = await bcrypt.hash(randomPassword, 10);
-          
-          const createUserDto: CreateUserDto = {
-            name: data.username,
-            password: hashedPassword
-          };
-          
-          user = await this.usersService.create(createUserDto);
+        console.log(`Cliente ${client.id} uniéndose al tablero ${boardId}`);
+        client.join(boardId);
+        
+        // Guardar la sala en el mapa de salas del usuario
+        const userRooms = this.userRooms.get(client.id) || [];
+        if (!userRooms.includes(boardId)) {
+          userRooms.push(boardId);
+          this.userRooms.set(client.id, userRooms);
         }
   
-        if (user._id) {
-          await this.usersService.addUser(client.id, new Types.ObjectId(user._id.toString()));
-          this.server.emit('userJoined', { name: user.name });
-          return { success: true, user };
-        } else {
-          throw new Error('Error al crear usuario: ID no generado');
+        // Obtener y enviar el estado actual del tablero
+        const board = await this.boardsService.findOne(boardId);
+        if (board) {
+          client.emit('board_updated', board);
         }
       } catch (error) {
-        console.error('Error en handleJoin:', error);
-        return { success: false, error: error.message };
+        console.error('Error al unirse al tablero:', error);
+        return { error: error.message };
+      }
+    }
+  
+    @SubscribeMessage('leave_board')
+    async handleLeaveBoard(client: Socket, boardId: string) {
+      try {
+        console.log(`Cliente ${client.id} dejando el tablero ${boardId}`);
+        client.leave(boardId);
+        
+        // Eliminar la sala del mapa de salas del usuario
+        const userRooms = this.userRooms.get(client.id) || [];
+        const updatedRooms = userRooms.filter(room => room !== boardId);
+        this.userRooms.set(client.id, updatedRooms);
+      } catch (error) {
+        console.error('Error al dejar el tablero:', error);
+        return { error: error.message };
       }
     }
   
@@ -91,7 +106,12 @@ import {
           description: data.description,
           columnId: data.columnId,
         });
-        this.server.emit('cardCreated', card);
+  
+        // Obtener la columna para saber a qué tablero pertenece
+        const column = await this.columnsService.findOne(data.columnId);
+        if (column) {
+          this.server.to(column.boardId.toString()).emit('cardCreated', card);
+        }
         return card;
       } catch (error) {
         console.error('Error al crear tarjeta:', error);
@@ -99,28 +119,49 @@ import {
       }
     }
   
-    @SubscribeMessage('moveCard')
-    async handleMoveCard(client: Socket, data: { cardId: string; sourceColumnId: string; targetColumnId: string; newIndex: number }) {
+    @SubscribeMessage('updateCard')
+    async handleUpdateCard(client: Socket, data: { cardId: string; updates: UpdateCardDto }) {
       try {
-        const card = await this.cardsService.update(data.cardId, {
-          columnId: data.targetColumnId
-        });
-        this.server.emit('cardMoved', card);
+        const card = await this.cardsService.update(data.cardId, data.updates);
+        if (card) {
+          const column = await this.columnsService.findOne(card.columnId.toString());
+          if (column) {
+            this.server.to(column.boardId.toString()).emit('cardUpdated', card);
+          }
+        }
         return card;
       } catch (error) {
-        console.error('Error al mover tarjeta:', error);
+        console.error('Error al actualizar tarjeta:', error);
+        return { error: error.message };
+      }
+    }
+  
+    @SubscribeMessage('deleteCard')
+    async handleDeleteCard(client: Socket, cardId: string) {
+      try {
+        const card = await this.cardsService.findOne(cardId);
+        if (card) {
+          const column = await this.columnsService.findOne(card.columnId.toString());
+          if (column) {
+            await this.cardsService.remove(cardId);
+            this.server.to(column.boardId.toString()).emit('cardDeleted', cardId);
+          }
+        }
+        return { success: true };
+      } catch (error) {
+        console.error('Error al eliminar tarjeta:', error);
         return { error: error.message };
       }
     }
   
     @SubscribeMessage('createColumn')
-    async handleCreateColumn(client: Socket, data: { boardId: string; title: string }) {
+    async handleCreateColumn(client: Socket, data: { boardId: string; name: string }) {
       try {
         const column = await this.columnsService.create({
-          title: data.title,
+          name: data.name,
           boardId: data.boardId,
         });
-        this.server.emit('columnCreated', column);
+        this.server.to(data.boardId).emit('columnCreated', column);
         return column;
       } catch (error) {
         console.error('Error al crear columna:', error);
@@ -128,21 +169,91 @@ import {
       }
     }
   
+    @SubscribeMessage('updateColumn')
+    async handleUpdateColumn(client: Socket, data: { columnId: string; updates: Partial<Column> }) {
+      try {
+        const column = await this.columnsService.update(data.columnId, data.updates);
+        if (column) {
+          this.server.to(column.boardId.toString()).emit('columnUpdated', column);
+        }
+        return column;
+      } catch (error) {
+        console.error('Error al actualizar columna:', error);
+        return { error: error.message };
+      }
+    }
+  
+    @SubscribeMessage('deleteColumn')
+    async handleDeleteColumn(client: Socket, columnId: string) {
+      try {
+        const column = await this.columnsService.findOne(columnId);
+        if (column) {
+          await this.columnsService.remove(columnId);
+          this.server.to(column.boardId.toString()).emit('columnDeleted', columnId);
+        }
+        return { success: true };
+      } catch (error) {
+        console.error('Error al eliminar columna:', error);
+        return { error: error.message };
+      }
+    }
+  
+    @SubscribeMessage('updateBoard')
+    async handleUpdateBoard(client: Socket, data: { boardId: string; updates: Partial<Board> }) {
+      try {
+        const board = await this.boardsService.update(data.boardId, data.updates);
+        if (board) {
+          this.server.to(data.boardId).emit('board_updated', board);
+        }
+        return board;
+      } catch (error) {
+        console.error('Error al actualizar tablero:', error);
+        return { error: error.message };
+      }
+    }
+  
     // Métodos de emisión para los servicios
-    emitCardCreated(card: Card) {
-      this.server.emit('cardCreated', card);
+    async emitCardCreated(card: Card) {
+      const column = await this.columnsService.findOne(card.columnId.toString());
+      if (column) {
+        this.server.to(column.boardId.toString()).emit('cardCreated', card);
+      }
     }
   
-    emitCardMoved(data: { cardId: string; toColumnId: string }) {
-      this.server.emit('cardMoved', data);
+    async emitCardUpdated(card: Card) {
+      const column = await this.columnsService.findOne(card.columnId.toString());
+      if (column) {
+        this.server.to(column.boardId.toString()).emit('cardUpdated', card);
+      }
     }
   
-    emitColumnCreated(column: Column) {
-      this.server.emit('columnCreated', column);
+    async emitCardDeleted(cardId: string) {
+      const card = await this.cardsService.findOne(cardId);
+      if (card) {
+        const column = await this.columnsService.findOne(card.columnId.toString());
+        if (column) {
+          this.server.to(column.boardId.toString()).emit('cardDeleted', cardId);
+        }
+      }
     }
   
-    private notifyClients(event: string, data: any) {
-      this.server.emit(event, data);
+    async emitColumnCreated(column: Column) {
+      this.server.to(column.boardId.toString()).emit('columnCreated', column);
+    }
+  
+    async emitColumnUpdated(column: Column) {
+      this.server.to(column.boardId.toString()).emit('columnUpdated', column);
+    }
+  
+    async emitColumnDeleted(columnId: string) {
+      const column = await this.columnsService.findOne(columnId);
+      if (column) {
+        this.server.to(column.boardId.toString()).emit('columnDeleted', columnId);
+      }
+    }
+  
+    async emitBoardUpdated(board: Board) {
+      this.server.to(board._id.toString()).emit('board_updated', board);
     }
   }
   

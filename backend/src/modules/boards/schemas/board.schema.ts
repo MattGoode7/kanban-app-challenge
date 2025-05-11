@@ -6,6 +6,8 @@ export type BoardDocument = Board & Document;
 
 @Schema()
 export class Board {
+  _id: Types.ObjectId;
+
   @Prop({ required: true })
   name: string;
 

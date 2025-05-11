@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../context/SocketContext';
-import { authApi, boardsApi } from '../services/api';
+import { authApi } from '../services/api';
 import { FormInput } from './common/FormInput';
 
 export default function LoginForm() {
@@ -20,14 +20,7 @@ export default function LoginForm() {
     try {
       await authApi.login(name, password);
       connect();
-
-      const boards = await boardsApi.getBoards();
-      if (boards.length > 0) {
-        navigate(`/board/${boards[0]._id}`);
-      } else {
-        const newBoard = await boardsApi.createBoard('Mi Primer Tablero');
-        navigate(`/board/${newBoard._id}`);
-      }
+      navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Error al iniciar sesión');
       console.error('Error:', err);
@@ -60,27 +53,27 @@ export default function LoginForm() {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-          </div>
 
-          {error && (
-            <div className="text-red-400 text-sm text-center">{error}</div>
-          )}
+            {error && (
+              <div className="text-red-400 text-sm text-center">{error}</div>
+            )}
 
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition duration-200 transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-blue-900 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Iniciando sesión...' : 'Ingresar'}
-          </button>
-
-          <div className="text-center">
             <button
-              onClick={() => navigate('/register')}
-              className="text-blue-200 hover:text-white transition-colors duration-200"
+              onClick={handleSubmit}
+              disabled={loading}
+              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition duration-200 transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-blue-900 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              ¿No tienes cuenta? Regístrate
+              {loading ? 'Iniciando sesión...' : 'Ingresar'}
             </button>
+
+            <div className="text-center">
+              <button
+                onClick={() => navigate('/register')}
+                className="text-blue-200 hover:text-white transition-colors duration-200"
+              >
+                ¿No tienes cuenta? Regístrate
+              </button>
+            </div>
           </div>
         </div>
       </div>

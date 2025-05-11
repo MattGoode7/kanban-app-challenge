@@ -2,6 +2,9 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: 'http://localhost:3000',
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
 // Interceptor para agregar el token a las peticiones
@@ -18,10 +21,25 @@ export interface User {
   name: string;
 }
 
+export type Card = {
+  _id: string;
+  title: string;
+  description?: string;
+  columnId: string;
+};
+
+export type Column = {
+  _id: string;
+  name: string;
+  boardId: string;
+  cards: Card[];
+};
+
 export type Board = {
   _id: string;
   name: string;
-  columns: string[];
+  columns: Column[];
+  __v: number;
 };
 
 export const authApi = {
@@ -50,13 +68,24 @@ export const authApi = {
 };
 
 export const boardsApi = {
-  getBoards: async () => {
+  getBoards: async (): Promise<Board[]> => {
     const response = await api.get('/boards');
     return response.data;
   },
-  createBoard: async (name: string) => {
+  getBoard: async (id: string): Promise<Board> => {
+    const response = await api.get(`/boards/${id}`);
+    return response.data;
+  },
+  createBoard: async (name: string): Promise<Board> => {
     const response = await api.post('/boards', { name });
     return response.data;
+  },
+  updateBoard: async (id: string, data: Partial<Board>): Promise<Board> => {
+    const response = await api.patch(`/boards/${id}`, data);
+    return response.data;
+  },
+  deleteBoard: async (id: string): Promise<void> => {
+    await api.delete(`/boards/${id}`);
   },
 };
 

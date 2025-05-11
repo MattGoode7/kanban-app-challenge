@@ -1,29 +1,51 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Column, ColumnDocument } from './schemas/column.schema';
-import { Model } from 'mongoose';
+import { Board, BoardDocument } from '../boards/schemas/board.schema';
+import { Model, Types } from 'mongoose';
 import { CreateColumnDto, UpdateColumnDto } from './dto/column.dto';
 
 @Injectable()
 export class ColumnsService {
   constructor(
     @InjectModel(Column.name) private columnModel: Model<ColumnDocument>,
+    @InjectModel(Board.name) private boardModel: Model<BoardDocument>,
   ) {}
 
   async create(createColumnDto: CreateColumnDto): Promise<Column> {
     const column = new this.columnModel(createColumnDto);
-    const saved = await column.save();
-    return saved;
+    const savedColumn = await column.save();
+
+    // Actualizar el tablero para incluir la nueva columna
+    await this.boardModel.findByIdAndUpdate(
+      createColumnDto.boardId,
+      { $push: { columns: savedColumn._id } },
+      { new: true }
+    );
+
+    return savedColumn;
   }
 
   async findAll(): Promise<Column[]> {
-    return this.columnModel.find().exec();
+    return this.columnModel.find().populate('cards').exec();
+  }
+
+  async findByBoard(boardId: string): Promise<Column[]> {
+    return this.columnModel.find({ boardId }).populate('cards').exec();
+  }
+
+  async findOne(id: string): Promise<Column> {
+    const column = await this.columnModel.findById(id).populate('cards').exec();
+    if (!column) {
+      throw new NotFoundException(`Column with id ${id} not found`);
+    }
+    return column;
   }
 
   async update(id: string, updateDto: UpdateColumnDto): Promise<Column> {
     const updated = await this.columnModel.findByIdAndUpdate(id, updateDto, {
       new: true,
-    });
+    }).populate('cards');
 
     if (!updated) {
       throw new NotFoundException(`Column with id ${id} not found`);
@@ -33,10 +55,23 @@ export class ColumnsService {
   }
 
   async remove(id: string): Promise<Column> {
+    const column = await this.columnModel.findById(id);
+    if (!column) {
+      throw new NotFoundException(`Column with id ${id} not found`);
+    }
+
+    // Eliminar la columna del tablero
+    await this.boardModel.findByIdAndUpdate(
+      column.boardId,
+      { $pull: { columns: column._id } }
+    );
+
+    // Eliminar la columna
     const deleted = await this.columnModel.findByIdAndDelete(id);
     if (!deleted) {
       throw new NotFoundException(`Column with id ${id} not found`);
     }
+
     return deleted;
   }
 }
