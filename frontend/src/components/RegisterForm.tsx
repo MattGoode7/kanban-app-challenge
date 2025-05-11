@@ -4,7 +4,7 @@ import { useSocket } from '../context/SocketContext';
 import { authApi, boardsApi } from '../services/api';
 import { FormInput } from './common/FormInput';
 
-export default function LoginForm() {
+export default function RegisterForm() {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,7 +18,7 @@ export default function LoginForm() {
     setError(null);
 
     try {
-      await authApi.login(name, password);
+      await authApi.register(name, password);
       connect();
 
       const boards = await boardsApi.getBoards();
@@ -29,7 +29,7 @@ export default function LoginForm() {
         navigate(`/board/${newBoard._id}`);
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Error al iniciar sesión');
+      setError(err.response?.data?.message || 'Error al registrar usuario');
       console.error('Error:', err);
     } finally {
       setLoading(false);
@@ -40,8 +40,8 @@ export default function LoginForm() {
     <div className="w-full min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-blue-800 to-blue-900">
       <div className="w-full max-w-md p-8 space-y-8 bg-white/10 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/20">
         <div className="text-center">
-          <h2 className="text-3xl font-bold text-white mb-2">Bienvenido</h2>
-          <p className="text-blue-200">Ingresa tus credenciales para continuar</p>
+          <h2 className="text-3xl font-bold text-white mb-2">Crear cuenta</h2>
+          <p className="text-blue-200">Ingresa tus datos para registrarte</p>
         </div>
 
         <div className="mt-8 space-y-6">
@@ -71,19 +71,19 @@ export default function LoginForm() {
             disabled={loading}
             className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition duration-200 transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-blue-900 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Iniciando sesión...' : 'Ingresar'}
+            {loading ? 'Registrando...' : 'Registrarse'}
           </button>
 
           <div className="text-center">
             <button
-              onClick={() => navigate('/register')}
+              onClick={() => navigate('/login')}
               className="text-blue-200 hover:text-white transition-colors duration-200"
             >
-              ¿No tienes cuenta? Regístrate
+              ¿Ya tienes cuenta? Inicia sesión
             </button>
           </div>
         </div>
       </div>
     </div>
   );
-}
+} 

@@ -1,31 +1,20 @@
-import { createContext, useContext, useEffect } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 const SOCKET_URL = 'http://localhost:3000';
 
-const socket = io(SOCKET_URL, {
-  transports: ['websocket', 'polling'],
-  withCredentials: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-  autoConnect: true,
-});
+interface SocketContextType {
+  socket: Socket | null;
+  connect: () => void;
+  disconnect: () => void;
+}
 
-// Agregar listeners para monitorear el estado de la conexión
-socket.on('connect', () => {
-  console.log('✅ Socket conectado:', socket.id);
+const SocketContext = createContext<SocketContextType>({
+  socket: null,
+  connect: () => {},
+  disconnect: () => {},
 });
-
-socket.on('disconnect', () => {
-  console.log('❌ Socket desconectado');
-});
-
-socket.on('connect_error', (error) => {
-  console.error('❌ Error de conexión:', error.message);
-});
-
-export const SocketContext = createContext<Socket>(socket);
 
 export const useSocket = () => useContext(SocketContext);
 
@@ -34,8 +23,50 @@ type Props = {
 };
 
 export const SocketProvider = ({ children }: Props) => {
+  const [socket, setSocket] = useState<Socket | null>(null);
+
+  useEffect(() => {
+    const newSocket = io(SOCKET_URL, {
+      transports: ['websocket', 'polling'],
+      withCredentials: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      autoConnect: false,
+    });
+
+    newSocket.on('connect', () => {
+      console.log('✅ Socket conectado:', newSocket.id);
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('❌ Socket desconectado');
+    });
+
+    newSocket.on('connect_error', (error) => {
+      console.error('❌ Error de conexión:', error.message);
+    });
+
+    setSocket(newSocket);
+
+    return () => {
+      newSocket.close();
+    };
+  }, []);
+
+  const connect = () => {
+    if (socket && !socket.connected) {
+      socket.connect();
+    }
+  };
+
+  const disconnect = () => {
+    if (socket && socket.connected) {
+      socket.disconnect();
+    }
+  };
+
   return (
-    <SocketContext.Provider value={socket}>
+    <SocketContext.Provider value={{ socket, connect, disconnect }}>
       {children}
     </SocketContext.Provider>
   );

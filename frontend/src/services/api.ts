@@ -1,6 +1,17 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3000';
+const api = axios.create({
+  baseURL: 'http://localhost:3000',
+});
+
+// Interceptor para agregar el token a las peticiones
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export interface User {
   _id: string;
@@ -13,21 +24,40 @@ export type Board = {
   columns: string[];
 };
 
-export const api = {
-  // Usuarios
-  createUser: async (name: string): Promise<User> => {
-    const response = await axios.post(`${API_URL}/users`, { name });
+export const authApi = {
+  register: async (name: string, password: string) => {
+    const response = await api.post('/auth/register', { name, password });
+    const { access_token, user } = response.data;
+    localStorage.setItem('token', access_token);
+    localStorage.setItem('user', JSON.stringify(user));
     return response.data;
   },
+  login: async (name: string, password: string) => {
+    const response = await api.post('/auth/login', { name, password });
+    const { access_token, user } = response.data;
+    localStorage.setItem('token', access_token);
+    localStorage.setItem('user', JSON.stringify(user));
+    return response.data;
+  },
+  logout: () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  },
+  getCurrentUser: () => {
+    const userStr = localStorage.getItem('user');
+    return userStr ? JSON.parse(userStr) : null;
+  },
+};
 
-  // Boards
-  getBoards: async (): Promise<Board[]> => {
-    const response = await axios.get(`${API_URL}/boards`);
+export const boardsApi = {
+  getBoards: async () => {
+    const response = await api.get('/boards');
     return response.data;
   },
+  createBoard: async (name: string) => {
+    const response = await api.post('/boards', { name });
+    return response.data;
+  },
+};
 
-  createBoard: async (name: string): Promise<Board> => {
-    const response = await axios.post(`${API_URL}/boards`, { name });
-    return response.data;
-  },
-}; 
+export default api; 

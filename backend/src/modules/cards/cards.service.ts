@@ -3,20 +3,16 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Card, CardDocument } from './schemas/card.schema';
 import { CreateCardDto, UpdateCardDto } from './dto/card.dto';
-import { KanbanGateway } from '../gateways/kanban.gateway';
 
 @Injectable()
 export class CardsService {
   constructor(
     @InjectModel(Card.name) private cardModel: Model<CardDocument>,
-    private readonly kanbanGateway: KanbanGateway,
   ) {}
 
   async create(createCardDto: CreateCardDto): Promise<Card> {
     const createdCard = new this.cardModel(createCardDto);
     const card = await createdCard.save();
-
-    this.kanbanGateway.emitCardCreated(card); // Emitir a todos los clientes
     return card;
   }
 
@@ -44,14 +40,6 @@ export class CardsService {
     if (!card) {
       throw new NotFoundException(`Card with id ${id} not found`);
     }
-
-    if (updateCardDto.columnId) {
-      this.kanbanGateway.emitCardMoved({
-        cardId: card.id,
-        toColumnId: updateCardDto.columnId,
-      });
-    }
-
     return card;
   }
 

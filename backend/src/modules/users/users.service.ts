@@ -1,39 +1,49 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { User, UserDocument } from './schemas/user.schema';
 import { CreateUserDto } from './dto/user.dto';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
-  private users: Map<string, User> = new Map();
+  private socketToUser: Map<string, string> = new Map(); // Map<socketId, userId>
 
   constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {
     console.log('✅ UsersService constructor llamado');
   }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
-    const user = new this.userModel(createUserDto);
+    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    const user = new this.userModel({
+      ...createUserDto,
+      password: hashedPassword,
+    });
     return user.save();
   }
 
-  remove(socketId: string): User | undefined {
-    const user = this.users.get(socketId);
-    if (user) {
-      this.users.delete(socketId);
+  async remove(socketId: string): Promise<User | null> {
+    const userId = this.socketToUser.get(socketId);
+    if (userId) {
+      this.socketToUser.delete(socketId);
+      return this.userModel.findById(userId).exec();
     }
-    return user;
+    return null;
   }
 
-  addUser(socketId: string, user: User): void {
-    this.users.set(socketId, user);
+  async addUser(socketId: string, userId: Types.ObjectId): Promise<void> {
+    this.socketToUser.set(socketId, userId.toString());
   }
 
-  findAll(): User[] {
-    return Array.from(this.users.values());
+  async findAll(): Promise<User[]> {
+    return this.userModel.find().exec();
   }
 
-  findOne(id: string): User | undefined {
-    return this.users.get(id);
+  async findOne(id: string): Promise<User | null> {
+    return this.userModel.findById(id).exec();
+  }
+
+  async findByName(name: string): Promise<User | null> {
+    return this.userModel.findOne({ name }).exec();
   }
 }

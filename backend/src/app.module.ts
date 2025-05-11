@@ -7,22 +7,18 @@ import { ColumnsModule } from './modules/columns/columns.module';
 import { CardsModule } from './modules/cards/cards.module';
 import { UsersModule } from './modules/users/users.module';
 import { GatewayModule } from './modules/gateways/gateway.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }), // Carga .env automáticamente
-    MongooseModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URI'),
-      }),
-      inject: [ConfigService],
-    }),
+    ConfigModule.forRoot(),
+    MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost:27017/kanban'),
     BoardsModule,
     ColumnsModule,
     CardsModule,
     UsersModule,
     GatewayModule,
+    AuthModule,
   ]
 })
 export class AppModule {}

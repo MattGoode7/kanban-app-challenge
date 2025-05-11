@@ -4,10 +4,12 @@ import { useSocket } from '../context/SocketContext';
 import Board from '../components/Board';
 
 const BoardPage: React.FC = () => {
-  const socket = useSocket();
+  const { socket } = useSocket();
 
   useEffect(() => {
-    const userName = localStorage.getItem('userName') || 'Usuario'; // Simula usuario
+    if (!socket) return;
+
+    const userName = localStorage.getItem('userName') || 'Usuario';
     socket.emit('user_connected', userName);
 
     socket.on('board_updated', (data) => {
