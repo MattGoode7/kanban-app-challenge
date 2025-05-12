@@ -20,14 +20,7 @@ export default function RegisterForm() {
     try {
       await authApi.register(name, password);
       connect();
-
-      const boards = await boardsApi.getBoards();
-      if (boards.length > 0) {
-        navigate(`/board/${boards[0]._id}`);
-      } else {
-        const newBoard = await boardsApi.createBoard('Mi Primer Tablero');
-        navigate(`/board/${newBoard._id}`);
-      }
+      navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Error al registrar usuario');
       console.error('Error:', err);

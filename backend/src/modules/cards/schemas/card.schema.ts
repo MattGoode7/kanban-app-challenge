@@ -1,6 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { Column } from '../../columns/schemas/column.schema';
 
 export type CardDocument = Card & Document;
 
@@ -13,7 +12,7 @@ export class Card {
   description: string;
 
   @Prop({ type: Types.ObjectId, ref: 'Column', required: true })
-  columnId: Column;
+  columnId: Types.ObjectId;
 }
 
 export const CardSchema = SchemaFactory.createForClass(Card);

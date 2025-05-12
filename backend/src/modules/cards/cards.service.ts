@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types, Document } from 'mongoose';
 import { Card, CardDocument } from './schemas/card.schema';
 import { Column, ColumnDocument } from '../columns/schemas/column.schema';
 import { CreateCardDto, UpdateCardDto } from './dto/card.dto';
@@ -16,20 +16,52 @@ export class CardsService {
   ) {}
 
   async create(createCardDto: CreateCardDto): Promise<Card> {
-    const createdCard = new this.cardModel(createCardDto);
-    const savedCard = await createdCard.save();
+    try {
+      if (!createCardDto.columnId) {
+        throw new Error('columnId es requerido');
+      }
 
-    // Actualizar la columna con la nueva tarjeta
-    await this.columnModel.findByIdAndUpdate(
-      createCardDto.columnId,
-      { $push: { cards: savedCard._id } },
-      { new: true }
-    );
+      // Verificar que la columna existe
+      const column = await this.columnModel.findById(createCardDto.columnId);
+      if (!column) {
+        throw new NotFoundException(`Column with id ${createCardDto.columnId} not found`);
+      }
 
-    // Emitir evento de tarjeta creada
-    await this.kanbanGateway.emitCardCreated(savedCard);
+      if (!column.boardId) {
+        throw new Error('La columna no tiene un tablero asociado');
+      }
 
-    return savedCard;
+      const createdCard = new this.cardModel({
+        ...createCardDto,
+        columnId: new Types.ObjectId(createCardDto.columnId)
+      });
+
+      const savedCard = await createdCard.save();
+      if (!savedCard) {
+        throw new Error('No se pudo guardar la tarjeta');
+      }
+
+      // Actualizar la columna con la nueva tarjeta
+      const updatedColumn = await this.columnModel.findByIdAndUpdate(
+        createCardDto.columnId,
+        { $push: { cards: savedCard._id } },
+        { new: true }
+      );
+
+      if (!updatedColumn) {
+        // Si no se pudo actualizar la columna, revertir la creación de la tarjeta
+        await this.cardModel.findByIdAndDelete(savedCard._id);
+        throw new Error('No se pudo actualizar la columna con la nueva tarjeta');
+      }
+
+      // Emitir evento de tarjeta creada
+      await this.kanbanGateway.emitCardCreated(savedCard);
+
+      return savedCard;
+    } catch (error) {
+      console.error('Error al crear tarjeta:', error);
+      throw error;
+    }
   }
 
   async findAll(): Promise<Card[]> {
@@ -100,5 +132,65 @@ export class CardsService {
 
     // Eliminar la tarjeta
     await this.cardModel.findByIdAndDelete(id);
+  }
+
+  async moveCard(
+    cardId: string,
+    sourceColumnId: string,
+    destinationColumnId: string,
+    sourceIndex: number,
+    destinationIndex: number,
+  ): Promise<Card> {
+    try {
+      const card = await this.cardModel.findById(cardId);
+
+      if (!card) {
+        throw new Error('Tarjeta no encontrada');
+      }
+
+      // Actualizar la columna de la tarjeta
+      const newColumnId = new Types.ObjectId(destinationColumnId);
+
+      card.columnId = newColumnId;
+
+      await card.save();
+      await this.columnModel.updateOne(
+        { _id: sourceColumnId },
+        { $pull: { cards: new Types.ObjectId(cardId) } }
+      );
+
+      // Actualizar el orden en la columna de destino
+      const destinationColumn = await this.columnModel.findById(destinationColumnId);
+
+      if (!destinationColumn) {
+        throw new Error('Columna de destino no encontrada');
+      }
+
+      const cards = [...destinationColumn.cards];
+      const cardObjectId = new Types.ObjectId(cardId);
+
+      cards.splice(destinationIndex, 0, cardObjectId);
+      destinationColumn.cards = cards;
+      await destinationColumn.save();
+
+      return card;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async removeByColumn(columnId: string): Promise<void> {
+    try {
+      // Encontrar todas las tarjetas de la columna
+      const cards = await this.cardModel.find({ columnId }).exec();
+      
+      // Eliminar cada tarjeta
+      for (const card of cards) {
+        const cardDoc = card as Document & { _id: Types.ObjectId };
+        await this.remove(cardDoc._id.toString());
+      }
+    } catch (error) {
+      throw error;
+    }
   }
 }

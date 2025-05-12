@@ -11,6 +11,9 @@ export class Board {
   @Prop({ required: true })
   name: string;
 
+  @Prop({ required: false })
+  description?: string;
+
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Column' }] })
   columns: Column[]; // Referencias
 }

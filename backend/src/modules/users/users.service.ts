@@ -9,9 +9,7 @@ import * as bcrypt from 'bcrypt';
 export class UsersService {
   private socketToUser: Map<string, string> = new Map(); // Map<socketId, userId>
 
-  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {
-    console.log('✅ UsersService constructor llamado');
-  }
+  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);

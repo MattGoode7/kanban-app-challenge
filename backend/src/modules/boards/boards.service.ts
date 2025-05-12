@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Board, BoardDocument } from './schemas/board.schema';
 import { CreateBoardDto, UpdateBoardDto } from './dto/board.dto';
 
@@ -71,5 +71,36 @@ export class BoardsService {
       throw new NotFoundException('Board not found');
     }
     return deleted;
+  }
+
+  async getBoardByColumnId(columnId: string): Promise<Board> {
+    try {
+      if (!columnId) {
+        throw new Error('columnId es requerido');
+      }
+
+      const board = await this.boardModel
+        .findOne({ 'columns': new Types.ObjectId(columnId) })
+        .populate({
+          path: 'columns',
+          populate: {
+            path: 'cards'
+          }
+        })
+        .exec();
+
+      if (!board) {
+        throw new NotFoundException(`Board with column ${columnId} not found`);
+      }
+
+      return board;
+    } catch (error) {
+      console.error('Error in getBoardByColumnId:', {
+        error: error.message,
+        columnId,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 }

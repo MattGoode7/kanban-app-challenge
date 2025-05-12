@@ -1,5 +1,4 @@
 // src/gateway/kanban.gateway.ts
-
 import {
     WebSocketGateway,
     SubscribeMessage,
@@ -7,26 +6,21 @@ import {
     OnGatewayConnection,
     OnGatewayDisconnect,
     WebSocketServer,
+    ConnectedSocket,
   } from '@nestjs/websockets';
   import { Server, Socket } from 'socket.io';
   import { UsersService } from '../users/users.service';
   import { BoardsService } from '../boards/boards.service';
   import { ColumnsService } from '../columns/columns.service';
   import { CardsService } from '../cards/cards.service';
-  import { CreateUserDto } from '../users/dto/user.dto';
-  import * as bcrypt from 'bcrypt';
-  import { Types } from 'mongoose';
   import { Card } from '../cards/schemas/card.schema';
   import { Column } from '../columns/schemas/column.schema';
   import { Board } from '../boards/schemas/board.schema';
-  import { UpdateCardDto } from '../cards/dto/card.dto';
   import { Inject, forwardRef } from '@nestjs/common';
   
   @WebSocketGateway({
     cors: {
-      origin: ['http://localhost:5173', 'http://localhost:5174'],
-      methods: ['GET', 'POST'],
-      credentials: true,
+      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
     },
     transports: ['websocket', 'polling'],
   })
@@ -39,6 +33,7 @@ import {
     constructor(
       private readonly usersService: UsersService,
       private readonly boardsService: BoardsService,
+      @Inject(forwardRef(() => ColumnsService))
       private readonly columnsService: ColumnsService,
       @Inject(forwardRef(() => CardsService))
       private readonly cardsService: CardsService,
@@ -101,17 +96,20 @@ import {
     @SubscribeMessage('createCard')
     async handleCreateCard(client: Socket, data: { columnId: string; title: string; description: string }) {
       try {
+        if (!data.columnId) {
+          throw new Error('columnId es requerido');
+        }
+
         const card = await this.cardsService.create({
           title: data.title,
           description: data.description,
           columnId: data.columnId,
         });
-  
-        // Obtener la columna para saber a qué tablero pertenece
-        const column = await this.columnsService.findOne(data.columnId);
-        if (column) {
-          this.server.to(column.boardId.toString()).emit('cardCreated', card);
+
+        if (!card) {
+          throw new Error('No se pudo crear la tarjeta');
         }
+
         return card;
       } catch (error) {
         console.error('Error al crear tarjeta:', error);
@@ -120,15 +118,19 @@ import {
     }
   
     @SubscribeMessage('updateCard')
-    async handleUpdateCard(client: Socket, data: { cardId: string; updates: UpdateCardDto }) {
+    async handleUpdateCard(
+      @ConnectedSocket() client: Socket,
+      @MessageBody() data: { cardId: string; updates: { title: string; description: string } }
+    ) {
       try {
         const card = await this.cardsService.update(data.cardId, data.updates);
-        if (card) {
-          const column = await this.columnsService.findOne(card.columnId.toString());
-          if (column) {
-            this.server.to(column.boardId.toString()).emit('cardUpdated', card);
-          }
+        if (!card) {
+          throw new Error('No se pudo actualizar la tarjeta');
         }
+
+        // Emitir evento de tarjeta actualizada
+        await this.emitCardUpdated(card);
+
         return card;
       } catch (error) {
         console.error('Error al actualizar tarjeta:', error);
@@ -137,16 +139,22 @@ import {
     }
   
     @SubscribeMessage('deleteCard')
-    async handleDeleteCard(client: Socket, cardId: string) {
+    async handleDeleteCard(
+      @ConnectedSocket() client: Socket,
+      @MessageBody() cardId: string
+    ) {
       try {
         const card = await this.cardsService.findOne(cardId);
-        if (card) {
-          const column = await this.columnsService.findOne(card.columnId.toString());
-          if (column) {
-            await this.cardsService.remove(cardId);
-            this.server.to(column.boardId.toString()).emit('cardDeleted', cardId);
-          }
+        if (!card) {
+          throw new Error('Tarjeta no encontrada');
         }
+
+        // Emitir evento de tarjeta eliminada
+        await this.emitCardDeleted(cardId);
+
+        // Eliminar la tarjeta
+        await this.cardsService.remove(cardId);
+
         return { success: true };
       } catch (error) {
         console.error('Error al eliminar tarjeta:', error);
@@ -155,13 +163,23 @@ import {
     }
   
     @SubscribeMessage('createColumn')
-    async handleCreateColumn(client: Socket, data: { boardId: string; name: string }) {
+    async handleCreateColumn(
+      @ConnectedSocket() client: Socket,
+      @MessageBody() data: { boardId: string; name: string }
+    ) {
       try {
         const column = await this.columnsService.create({
           name: data.name,
-          boardId: data.boardId,
+          boardId: data.boardId
         });
-        this.server.to(data.boardId).emit('columnCreated', column);
+
+        if (!column) {
+          throw new Error('No se pudo crear la columna');
+        }
+
+        // Emitir evento de columna creada
+        await this.emitColumnCreated(column);
+
         return column;
       } catch (error) {
         console.error('Error al crear columna:', error);
@@ -170,54 +188,183 @@ import {
     }
   
     @SubscribeMessage('updateColumn')
-    async handleUpdateColumn(client: Socket, data: { columnId: string; updates: Partial<Column> }) {
+    async handleUpdateColumn(
+      @ConnectedSocket() client: Socket,
+      @MessageBody() data: { columnId: string; name: string }
+    ) {
       try {
-        const column = await this.columnsService.update(data.columnId, data.updates);
-        if (column) {
-          this.server.to(column.boardId.toString()).emit('columnUpdated', column);
-        }
-        return column;
+        const { columnId, name } = data;
+        const column = await this.columnsService.update(columnId, { name });
+        this.server.to(column.boardId.toString()).emit('columnUpdated', column);
       } catch (error) {
-        console.error('Error al actualizar columna:', error);
-        return { error: error.message };
+        client.emit('error', { message: error.message });
       }
     }
   
     @SubscribeMessage('deleteColumn')
-    async handleDeleteColumn(client: Socket, columnId: string) {
+    async handleDeleteColumn(
+      @ConnectedSocket() client: Socket,
+      @MessageBody() data: { columnId: string }
+    ) {
       try {
+        const { columnId } = data;
         const column = await this.columnsService.findOne(columnId);
-        if (column) {
-          await this.columnsService.remove(columnId);
-          this.server.to(column.boardId.toString()).emit('columnDeleted', columnId);
+        if (!column) {
+          throw new Error('Columna no encontrada');
         }
-        return { success: true };
+        await this.columnsService.remove(columnId);
+        this.server.to(column.boardId.toString()).emit('columnDeleted', columnId);
       } catch (error) {
-        console.error('Error al eliminar columna:', error);
-        return { error: error.message };
+        client.emit('error', { message: error.message });
       }
     }
   
     @SubscribeMessage('updateBoard')
-    async handleUpdateBoard(client: Socket, data: { boardId: string; updates: Partial<Board> }) {
+    async handleUpdateBoard(
+      @ConnectedSocket() client: Socket,
+      @MessageBody() data: { boardId: string; updates: { name: string } }
+    ) {
       try {
         const board = await this.boardsService.update(data.boardId, data.updates);
         if (board) {
-          this.server.to(data.boardId).emit('board_updated', board);
+          // Emitir el evento de actualización a todos los clientes conectados
+          this.server.emit('boardUpdated', board);
         }
+        return { board };
+      } catch (error) {
+        return { error: 'Error al actualizar el tablero' };
+      }
+    }
+  
+    @SubscribeMessage('deleteBoard')
+    async handleDeleteBoard(
+      @ConnectedSocket() client: Socket,
+      @MessageBody() data: { boardId: string }
+    ) {
+      try {
+        await this.boardsService.remove(data.boardId);
+        // Emitir el evento de eliminación a todos los clientes conectados
+        this.server.emit('boardDeleted', { boardId: data.boardId });
+        return { success: true };
+      } catch (error) {
+        return { error: 'Error al eliminar el tablero' };
+      }
+    }
+  
+    @SubscribeMessage('createBoard')
+    async handleCreateBoard(client: Socket, data: { name: string }) {
+      try {
+        if (!data.name) {
+          throw new Error('El nombre del tablero es requerido');
+        }
+
+        const board = await this.boardsService.create({
+          name: data.name.trim()
+        });
+
+        if (!board) {
+          throw new Error('No se pudo crear el tablero');
+        }
+
+        // Unir al cliente al nuevo tablero
+        await this.handleJoinBoard(client, board._id.toString());
+
+        // Emitir el evento de tablero creado a todos los clientes
+        this.server.emit('boardCreated', board);
+
         return board;
       } catch (error) {
-        console.error('Error al actualizar tablero:', error);
+        console.error('Error al crear tablero:', error);
+        return { error: error.message };
+      }
+    }
+  
+    @SubscribeMessage('moveCard')
+    async handleMoveCard(
+      @ConnectedSocket() client: Socket,
+      @MessageBody() data: {
+        cardId: string;
+        sourceColumnId: string;
+        destinationColumnId: string;
+        sourceIndex: number;
+        destinationIndex: number;
+      },
+    ) {
+      try {
+        const { cardId, sourceColumnId, destinationColumnId, sourceIndex, destinationIndex } = data;
+
+        // Actualizar la posición de la tarjeta
+        const updatedCard = await this.cardsService.moveCard(
+          cardId,
+          sourceColumnId,
+          destinationColumnId,
+          sourceIndex,
+          destinationIndex
+        );
+
+        // Emitir el evento de actualización a todos los clientes en el tablero
+        const board = await this.boardsService.getBoardByColumnId(destinationColumnId);
+        if (board) {
+          this.server.to(board._id.toString()).emit('cardMoved', {
+            cardId,
+            sourceColumnId,
+            destinationColumnId,
+            card: updatedCard
+          });
+        }
+
+        return { success: true };
+      } catch (error) {
+        console.error('Error moving card:', error);
+        return { error: 'Error al mover la tarjeta' };
+      }
+    }
+  
+    @SubscribeMessage('getBoards')
+    async handleGetBoards(
+      @ConnectedSocket() client: Socket
+    ) {
+      try {
+        const boards = await this.boardsService.findAll();
+        return { boards };
+      } catch (error) {
+        console.error('Error al obtener tableros:', error);
         return { error: error.message };
       }
     }
   
     // Métodos de emisión para los servicios
     async emitCardCreated(card: Card) {
-      const column = await this.columnsService.findOne(card.columnId.toString());
-      if (column) {
+      try {
+        if (!card) {
+          console.error('Error: card es undefined');
+          return;
+        }
+
+        if (!card.columnId) {
+          console.error('Error: columnId es undefined en la tarjeta', card);
+          return;
+        }
+
+        const column = await this.columnsService.findOne(card.columnId.toString());
+        if (!column) {
+          console.error('Error: No se encontró la columna para la tarjeta', card);
+          return;
+        }
+
+        if (!column.boardId) {
+          console.error('Error: La columna no tiene un tablero asociado', column);
+          return;
+        }
+
         this.server.to(column.boardId.toString()).emit('cardCreated', card);
+      } catch (error) {
+        console.error('Error al emitir cardCreated:', error);
       }
+    }
+  
+    async emitColumnCreated(column: Column) {
+      this.server.to(column.boardId.toString()).emit('columnCreated', column);
     }
   
     async emitCardUpdated(card: Card) {
@@ -235,10 +382,6 @@ import {
           this.server.to(column.boardId.toString()).emit('cardDeleted', cardId);
         }
       }
-    }
-  
-    async emitColumnCreated(column: Column) {
-      this.server.to(column.boardId.toString()).emit('columnCreated', column);
     }
   
     async emitColumnUpdated(column: Column) {

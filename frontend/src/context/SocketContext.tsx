@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { useNavigate } from 'react-router-dom';
 
 const SOCKET_URL = 'http://localhost:3000';
 
